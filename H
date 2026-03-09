@@ -1,0 +1,21 @@
+private void validateUserOrApp(UdcpPersistenceRequest request,
+                               ValidationErrorCollector errors) {
+
+    String soeid = null;
+    String appId = null;
+
+    if (request.getUser() != null) {
+        soeid = request.getUser().getSoeid();
+    }
+
+    if (request.getAppInfo() != null) {
+        appId = request.getAppInfo().getAppId();
+    }
+
+    boolean soeidPresent = soeid != null && !soeid.trim().isEmpty();
+    boolean appIdPresent = appId != null && !appId.trim().isEmpty();
+
+    if (!soeidPresent && !appIdPresent) {
+        errors.addMissingField("user.soeid OR appInfo.appId");
+    }
+}
