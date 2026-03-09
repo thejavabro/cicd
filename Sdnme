@@ -1,0 +1,235 @@
+Your backend response format:
+
+{
+  "data": [
+    {
+      "TAG_CD": "BANK NAM",
+      "TAG_DESC": "Banking NAM",
+      "TAG_CAT_CD": "STD"
+    },
+    {
+      "TAG_CD": "BCBS",
+      "TAG_DESC": "Basil",
+      "TAG_CAT_CD": "STD"
+    }
+  ]
+}
+
+Mapping requirement:
+
+Backend field	Dropdown usage
+
+TAG_CD	value
+TAG_DESC	display text
+TAG_CAT_CD	category
+
+
+
+---
+
+1. Model
+
+tag.model.ts
+
+export interface Tag {
+  value: string;
+  label: string;
+  category: string;
+}
+
+
+---
+
+2. Service (map backend → UI model)
+
+tag.service.ts
+
+import { Injectable } from '@angular/core';
+import { HttpClient } from '@angular/common/http';
+import { Observable, map } from 'rxjs';
+
+export interface BackendTag {
+  TAG_CD: string;
+  TAG_DESC: string;
+  TAG_CAT_CD: string;
+}
+
+export interface BackendResponse {
+  data: BackendTag[];
+}
+
+@Injectable({
+  providedIn: 'root'
+})
+export class TagService {
+
+  private url = '/api/dgrm-api/get-dgrm-data';
+
+  constructor(private http: HttpClient) {}
+
+  getTags(): Observable<Tag[]> {
+
+    return this.http.get<BackendResponse>(this.url).pipe(
+
+      map(response =>
+        response.data.map(tag => ({
+          value: tag.TAG_CD,
+          label: tag.TAG_DESC,
+          category: tag.TAG_CAT_CD
+        }))
+      )
+
+    );
+  }
+}
+
+Important transformation:
+
+Backend DTO → UI model
+
+TAG_CD      → value
+TAG_DESC    → label
+TAG_CAT_CD  → category
+
+
+---
+
+3. Component
+
+tag-dropdown.component.ts
+
+import { Component, OnInit } from '@angular/core';
+import { Observable } from 'rxjs';
+import { TagService } from './tag.service';
+import { Tag } from './tag.model';
+
+@Component({
+  selector: 'app-tag-dropdown',
+  templateUrl: './tag-dropdown.component.html'
+})
+export class TagDropdownComponent implements OnInit {
+
+  tags$!: Observable<Tag[]>;
+
+  constructor(private tagService: TagService) {}
+
+  ngOnInit(): void {
+    this.tags$ = this.tagService.getTags();
+  }
+
+}
+
+Production practice: use Observable + async pipe.
+
+
+---
+
+4. HTML Dropdown
+
+tag-dropdown.component.html
+
+<select>
+
+  <option *ngFor="let tag of tags$ | async"
+          [value]="tag.value">
+
+    {{tag.label}} ({{tag.category}})
+
+  </option>
+
+</select>
+
+Example UI:
+
+Banking NAM (STD)
+Basil (STD)
+
+
+---
+
+5. If you want category grouping (better UX)
+
+Example:
+
+STD
+   Banking NAM
+   Basil
+
+UD
+   newtag
+
+HTML:
+
+<select>
+
+  <ng-container *ngFor="let group of groupedTags$ | async">
+
+    <optgroup [label]="group.category">
+
+      <option *ngFor="let tag of group.tags"
+              [value]="tag.value">
+
+        {{tag.label}}
+
+      </option>
+
+    </optgroup>
+
+  </ng-container>
+
+</select>
+
+
+---
+
+6. Mapping + grouping (enterprise style)
+
+Service:
+
+getGroupedTags() {
+
+ return this.http.get<BackendResponse>(this.url).pipe(
+
+   map(res => res.data),
+
+   map(tags => {
+
+     const grouped: any = {};
+
+     tags.forEach(tag => {
+
+       const category = tag.TAG_CAT_CD;
+
+       if (!grouped[category]) {
+         grouped[category] = [];
+       }
+
+       grouped[category].push({
+         value: tag.TAG_CD,
+         label: tag.TAG_DESC
+       });
+
+     });
+
+     return Object.keys(grouped).map(cat => ({
+       category: cat,
+       tags: grouped[cat]
+     }));
+
+   })
+
+ );
+}
+
+
+---
+
+If useful, a more senior Angular pattern (used in large enterprise apps) can also be shown:
+
+avoid subscribe() completely
+
+use RxJS shareReplay() caching
+
+load dropdown data only once
+
+prevent multiple backend calls.
