@@ -1,0 +1,162 @@
+Example Angular pattern:
+
+Component calls backend in ngOnInit
+
+Service returns Observable<Item[]>
+
+map operator transforms response
+
+Dropdown shows value and category
+
+
+Assume backend returns objects like:
+
+[
+  { "id": 1, "value": "Apple", "category": "Fruit" },
+  { "id": 2, "value": "Carrot", "category": "Vegetable" },
+  { "id": 3, "value": "Milk", "category": "Dairy" }
+]
+
+
+---
+
+1. Model (recommended in real projects)
+
+item.model.ts
+
+export interface Item {
+  id: number;
+  value: string;
+  category: string;
+}
+
+
+---
+
+2. Service calling backend
+
+item.service.ts
+
+import { Injectable } from '@angular/core';
+import { HttpClient } from '@angular/common/http';
+import { Observable, map } from 'rxjs';
+import { Item } from './item.model';
+
+@Injectable({
+  providedIn: 'root'
+})
+export class ItemService {
+
+  private apiUrl = 'http://localhost:8080/api/items';
+
+  constructor(private http: HttpClient) {}
+
+  getItems(): Observable<Item[]> {
+    return this.http.get<Item[]>(this.apiUrl).pipe(
+      map(response => {
+        return response.map(item => ({
+          id: item.id,
+          value: item.value,
+          category: item.category
+        }));
+      })
+    );
+  }
+}
+
+map is transforming the backend response before the component receives it.
+
+
+---
+
+3. Component
+
+dropdown.component.ts
+
+import { Component, OnInit } from '@angular/core';
+import { ItemService } from './item.service';
+import { Item } from './item.model';
+
+@Component({
+  selector: 'app-dropdown',
+  templateUrl: './dropdown.component.html'
+})
+export class DropdownComponent implements OnInit {
+
+  items: Item[] = [];
+  selectedItem?: Item;
+
+  constructor(private itemService: ItemService) {}
+
+  ngOnInit(): void {
+    this.itemService.getItems().subscribe(data => {
+      this.items = data;
+    });
+  }
+}
+
+
+---
+
+4. HTML Template
+
+dropdown.component.html
+
+<select [(ngModel)]="selectedItem">
+
+  <option *ngFor="let item of items" [ngValue]="item">
+    {{item.value}} - {{item.category}}
+  </option>
+
+</select>
+
+Displayed dropdown:
+
+Apple - Fruit
+Carrot - Vegetable
+Milk - Dairy
+
+
+---
+
+5. More production-grade pattern (better for Angular)
+
+Avoid manual subscription and use async pipe.
+
+Component
+
+items$!: Observable<Item[]>;
+
+ngOnInit(): void {
+  this.items$ = this.itemService.getItems();
+}
+
+HTML
+
+<select>
+
+  <option *ngFor="let item of items$ | async" [value]="item.id">
+    {{item.value}} - {{item.category}}
+  </option>
+
+</select>
+
+Benefits:
+
+no manual subscribe
+
+no memory leaks
+
+Angular handles unsubscribe automatically
+
+
+
+---
+
+If useful, a more realistic enterprise pattern can also be shown where:
+
+backend response DTO ≠ UI model
+
+map() converts API DTO → UI model
+
+dropdown grouped by category (<optgroup>) for better UX.
