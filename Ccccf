@@ -1,0 +1,124 @@
+The error is happening because response.data is not typed as RuleTagBackend[].
+TypeScript currently thinks each item is { [key: string]: string | number }, so when you declare:
+
+(item: RuleTagBackend)
+
+TypeScript says the types are incompatible.
+
+You need to cast response.data to RuleTagBackend[] before mapping.
+
+Below is the correct production-safe approach for your component.
+
+
+---
+
+Correct Code for Your Component Class
+
+import { Component, OnInit } from '@angular/core';
+import { map } from 'rxjs/operators';
+import { Observable } from 'rxjs';
+
+import { DqrmService } from '../services/dqrm.service';
+import { RuleTagBackend, RuleTag } from '../models/RuleTag';
+
+@Component({
+  selector: 'app-add-business-rule',
+  templateUrl: './add-business-rule.component.html'
+})
+export class AddBusinessRuleComponent implements OnInit {
+
+  ruleTags$!: Observable<RuleTag[]>;
+  selected: RuleTag | null = null;
+
+  viewFields = [
+    { key: 'tag', label: 'Tag', flex: 3, minWidth: 160 },
+    { key: 'category', label: 'Category', flex: 2 }
+  ];
+
+  constructor(private dqrmService: DqrmService) {}
+
+  ngOnInit(): void {
+
+    const ruleTagsPayload = {
+      endRow: -1,
+      queryName: "RULE_TAGS",
+      searchFeaturesRequested: ["TOP_RECORDS_LIVE_SEARCH"],
+      searchMode: "LIVE_SEARCH",
+      startRow: 0
+    };
+
+    this.ruleTags$ = this.dqrmService.getRuleTags(ruleTagsPayload).pipe(
+
+      map((response: any) => {
+        const backendData = response.data as RuleTagBackend[];
+
+        return backendData.map(item => ({
+          tagCode: item.TAG_CD,
+          tag: item.TAG_DESC,
+          category: item.TAG_CAT_CD
+        }));
+      })
+
+    );
+  }
+}
+
+
+---
+
+HTML for the Dropdown
+
+<mt-typeahead
+  placeholder="Search tag"
+  [options]="ruleTags$ | async"
+  [viewFields]="viewFields"
+  [optionField]="['tag','category']"
+  [(ngModel)]="selected">
+</mt-typeahead>
+
+
+---
+
+Why This Fix Works
+
+Your error:
+
+Type '{ [key: string]: string | number }' is missing properties from type 'RuleTagBackend'
+
+Because your service returns a generic object.
+
+This line fixes it:
+
+const backendData = response.data as RuleTagBackend[];
+
+Now TypeScript knows the fields exist:
+
+TAG_CD
+TAG_DESC
+TAG_CAT_CD
+
+So this mapping works safely:
+
+tagCode: item.TAG_CD
+tag: item.TAG_DESC
+category: item.TAG_CAT_CD
+
+
+---
+
+Result in Dropdown
+
+Tag	Category
+
+newtag	UD
+txt	UD
+Banking NAM	STD
+BASIL	STD
+
+
+Exactly 2 columns instead of 3.
+
+
+---
+
+If you want, I can also show a much cleaner RxJS version that senior Angular engineers usually write (removes any, improves typing, and prevents runtime bugs).
