@@ -1,0 +1,409 @@
+Understood. If your API returns all tags when startRow = -1, then the frontend should simply load the full tag list once and perform client-side filtering, which fits perfectly with the reusable component design.
+
+The only adjustment needed is in the service mapping and initialization flow. Below is the clean final implementation aligned with your backend response.
+
+
+---
+
+1. Backend Response (your API)
+
+{
+  "data": [
+    {
+      "TAG_CD": "2Q8JUL3Mkk3IYIXSWj1cHea",
+      "TAG_DESC": "newtag",
+      "TAG_CAT_CD": "UD"
+    },
+    {
+      "TAG_CD": "BANK NAM",
+      "TAG_DESC": "Banking NAM",
+      "TAG_CAT_CD": "STD"
+    }
+  ]
+}
+
+
+---
+
+2. Final Folder Structure
+
+src/app/components/tag-search/
+
+├── models
+│   └── tag.model.ts
+│
+├── data-source
+│   └── tag-data-source.ts
+│
+├── tag-search.component.ts
+├── tag-search.component.html
+├── tag-search.component.scss
+
+
+---
+
+3. Tag Model
+
+File
+
+tag.model.ts
+
+export interface Tag {
+
+  code: string;
+
+  label: string;
+
+  category: 'SYSTEM' | 'USER';
+
+  isNew?: boolean;
+
+}
+
+
+---
+
+4. Update Your Service
+
+You only need to map backend → UI model.
+
+File
+
+dqrm.service.ts
+
+import { map } from 'rxjs/operators';
+import { Tag } from '../components/tag-search/models/tag.model';
+
+public getRuleTags(): Observable<Tag[]> {
+
+  const ruleTagsPayload: DqrmDataPayload = {
+
+    filterModel: {},
+
+    sortModel: [],
+
+    groupKeys: [],
+
+    pivotCols: [],
+
+    pivotMode: false,
+
+    rowGroupCols: [],
+
+    valueCols: [],
+
+    startRow: -1,   // important
+
+    endRow: -1,
+
+    queryName: "RULE_TAGS",
+
+    searchMode: "LIVE_SEARCH",
+
+    searchFeaturesRequested: ["TOP_RECORDS_LIVE_SEARCH"]
+
+  };
+
+  return this.dqrmDataClient
+    .getDqrmDatas(ruleTagsPayload)
+    .pipe(
+      map((response: any) =>
+        response.data.map((t: any) => ({
+          code: t.TAG_CD,
+          label: t.TAG_DESC,
+          category: t.TAG_CAT_CD === 'STD' ? 'SYSTEM' : 'USER'
+        }))
+      )
+    );
+}
+
+Now your service returns:
+
+Observable<Tag[]>
+
+which is exactly what the UI needs.
+
+
+---
+
+5. Tag Data Source
+
+File
+
+tag-data-source.ts
+
+import { signal } from '@angular/core';
+import { Tag } from '../models/tag.model';
+
+export class TagDataSource {
+
+  private tags = signal<Tag[]>([]);
+
+  setTags(tags: Tag[]) {
+    this.tags.set(tags);
+  }
+
+  getAll(): Tag[] {
+    return this.tags();
+  }
+
+  filter(query: string): Tag[] {
+
+    const results = this.tags().filter(tag =>
+      tag.label.toLowerCase().includes(query.toLowerCase())
+    );
+
+    if (query && results.length === 0) {
+
+      results.push({
+        code: '',
+        label: query,
+        category: 'USER',
+        isNew: true
+      });
+
+    }
+
+    return results;
+  }
+}
+
+
+---
+
+6. Tag Search Component
+
+File
+
+tag-search.component.ts
+
+import {
+  Component,
+  ChangeDetectionStrategy,
+  forwardRef,
+  inject,
+  signal
+} from '@angular/core';
+
+import {
+  ControlValueAccessor,
+  NG_VALUE_ACCESSOR,
+  FormControl
+} from '@angular/forms';
+
+import { debounceTime } from 'rxjs';
+
+import { Tag } from './models/tag.model';
+import { TagDataSource } from './data-source/tag-data-source';
+
+@Component({
+
+  selector: 'tag-search',
+
+  templateUrl: './tag-search.component.html',
+
+  styleUrls: ['./tag-search.component.scss'],
+
+  providers: [
+    {
+      provide: NG_VALUE_ACCESSOR,
+      useExisting: forwardRef(() => TagSearchComponent),
+      multi: true
+    },
+    TagDataSource
+  ],
+
+  changeDetection: ChangeDetectionStrategy.OnPush
+
+})
+export class TagSearchComponent implements ControlValueAccessor {
+
+  dataSource = inject(TagDataSource);
+
+  searchCtrl = new FormControl('');
+
+  filteredTags = signal<Tag[]>([]);
+
+  selectedTags: Tag[] = [];
+
+  disabled = false;
+
+  ngOnInit() {
+
+    this.filteredTags.set(this.dataSource.getAll());
+
+    this.searchCtrl.valueChanges
+      .pipe(debounceTime(200))
+      .subscribe(value => {
+
+        const query = value ?? '';
+
+        this.filteredTags.set(
+          this.dataSource.filter(query)
+        );
+
+      });
+  }
+
+  toggle(tag: Tag) {
+
+    if (this.disabled) return;
+
+    const exists = this.selectedTags.find(t => t.label === tag.label);
+
+    if (exists) {
+
+      this.selectedTags =
+        this.selectedTags.filter(t => t.label !== tag.label);
+
+    } else {
+
+      this.selectedTags = [...this.selectedTags, tag];
+
+    }
+
+    this.onChange(this.selectedTags);
+  }
+
+  remove(tag: Tag) {
+
+    this.toggle(tag);
+
+  }
+
+  isSelected(tag: Tag): boolean {
+
+    return this.selectedTags.some(t => t.label === tag.label);
+
+  }
+
+  writeValue(tags: Tag[]): void {
+
+    this.selectedTags = tags || [];
+
+  }
+
+  registerOnChange(fn: any): void {
+
+    this.onChange = fn;
+
+  }
+
+  registerOnTouched(fn: any): void {
+
+    this.onTouched = fn;
+
+  }
+
+  setDisabledState(isDisabled: boolean): void {
+
+    this.disabled = isDisabled;
+
+  }
+
+  onChange: any = () => {};
+  onTouched: any = () => {};
+}
+
+
+---
+
+7. HTML Template
+
+File
+
+tag-search.component.html
+
+<div class="tag-search">
+
+  <div class="chips">
+
+    <span class="chip" *ngFor="let tag of selectedTags">
+
+      {{tag.label}}
+
+      <button type="button" (click)="remove(tag)">×</button>
+
+    </span>
+
+    <input
+      type="text"
+      [formControl]="searchCtrl"
+      placeholder="Search tags"
+    />
+
+  </div>
+
+  <div class="dropdown">
+
+    <div
+      class="option"
+      *ngFor="let tag of filteredTags()"
+      (click)="toggle(tag)"
+    >
+
+      <input type="checkbox" [checked]="isSelected(tag)" />
+
+      <div class="row">
+
+        <div class="desc">
+          {{tag.label}}
+          <span *ngIf="tag.isNew">(Create New)</span>
+        </div>
+
+        <div class="category">
+          {{tag.category}}
+        </div>
+
+      </div>
+
+    </div>
+
+  </div>
+
+</div>
+
+
+---
+
+8. Load Tags in Business Rule Component
+
+constructor(private dqrmService: DqrmService) {}
+
+@ViewChild(TagSearchComponent)
+tagSearch!: TagSearchComponent;
+
+ngAfterViewInit() {
+
+  this.dqrmService.getRuleTags()
+    .subscribe(tags => {
+
+      this.tagSearch.dataSource.setTags(tags);
+
+    });
+
+}
+
+
+---
+
+Final Behavior
+
+Dropdown shows:
+
+Banking NAM      SYSTEM
+txt              USER
+newtag           USER
+
+Typing something new:
+
+abcd (Create New)
+
+Selecting results:
+
+[newtag] [txt] [Banking NAM] [abcd]
+
+
+---
+
+If you'd like, I can also show a very important improvement for your stepper scenario: a shared TagStore using Angular Signals that automatically propagates Business Rule tags to Logical Rule without using ViewChild, which will make the architecture significantly cleaner.
